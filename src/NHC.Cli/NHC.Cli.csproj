@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.22621.0</TargetFramework>
     <RootNamespace>NHC.Cli</RootNamespace>
     <AssemblyName>nhc</AssemblyName>
     <Description>Headless command-line HDR converter sharing NHC.Core pipeline.</Description>
