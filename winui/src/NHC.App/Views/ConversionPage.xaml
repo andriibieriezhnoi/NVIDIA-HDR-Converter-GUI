@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page x:Class="NHC.App.Views.ConversionPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:vm="using:NHC.App.ViewModels"
+      xmlns:tm="using:NHC.Core.ToneMapping">
+    <Page.Resources>
+        <Style TargetType="TextBlock" x:Key="SectionHeader">
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,16,0,8" />
+        </Style>
+    </Page.Resources>
+
+    <Grid Padding="24" ColumnSpacing="24">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="380" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Controls -->
+        <ScrollViewer Grid.Column="0">
+            <StackPanel Spacing="8">
+                <TextBlock Text="Input" Style="{StaticResource SectionHeader}" />
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox Text="{x:Bind ViewModel.InputPath, Mode=TwoWay}" PlaceholderText=".jxr file" />
+                    <Button Grid.Column="1" Content="Browse" Command="{x:Bind ViewModel.PickInputCommand}" />
+                </Grid>
+
+                <TextBlock Text="Output" Style="{StaticResource SectionHeader}" />
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox Text="{x:Bind ViewModel.OutputPath, Mode=TwoWay}" PlaceholderText="output.jpg" />
+                    <Button Grid.Column="1" Content="Browse" Command="{x:Bind ViewModel.PickOutputCommand}" />
+                </Grid>
+
+                <TextBlock Text="Tone mapping" Style="{StaticResource SectionHeader}" />
+                <ComboBox Width="220"
+                          ItemsSource="{x:Bind ViewModel.ToneMappers}"
+                          SelectedItem="{x:Bind ViewModel.ToneMapper, Mode=TwoWay}" />
+
+                <TextBlock Text="Exposure" />
+                <Slider Minimum="0.1" Maximum="3.0" StepFrequency="0.05"
+                        Value="{x:Bind ViewModel.Exposure, Mode=TwoWay}" />
+
+                <TextBlock Text="Gamma" />
+                <Slider Minimum="0.1" Maximum="3.0" StepFrequency="0.05"
+                        Value="{x:Bind ViewModel.Gamma, Mode=TwoWay}" />
+
+                <TextBlock Text="AI enhancement" Style="{StaticResource SectionHeader}" />
+                <ToggleSwitch IsOn="{x:Bind ViewModel.EnhanceEnabled, Mode=TwoWay}"
+                              OnContent="On" OffContent="Off" />
+                <TextBlock Text="Strength" />
+                <Slider Minimum="0" Maximum="1" StepFrequency="0.01"
+                        Value="{x:Bind ViewModel.EnhanceStrength, Mode=TwoWay}" />
+
+                <TextBlock Text="Edge enhancement" />
+                <Slider Minimum="0" Maximum="1" StepFrequency="0.01"
+                        Value="{x:Bind ViewModel.EdgeStrength, Mode=TwoWay}" />
+
+                <Button Margin="0,24,0,0" HorizontalAlignment="Stretch"
+                        Style="{ThemeResource AccentButtonStyle}"
+                        Content="Convert"
+                        Command="{x:Bind ViewModel.ConvertCommand}" />
+
+                <ProgressBar Margin="0,12,0,0"
+                             Value="{x:Bind ViewModel.Progress, Mode=OneWay}"
+                             Minimum="0" Maximum="1" />
+                <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}" Opacity="0.8" />
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Preview placeholder — Win2D integration goes here in a later pass. -->
+        <Border Grid.Column="1"
+                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                CornerRadius="8">
+            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
+                       Text="Preview (Win2D CanvasControl) — wired in Phase 5" Opacity="0.6" />
+        </Border>
+    </Grid>
+</Page>

@@ -6,6 +6,15 @@ Convert NVIDIA HDR screenshots (JXR format) to JPEG with advanced AI enhancement
   <img width="1024" src="interface.jpg">
 </p>
 
+> **Native Windows rewrite in progress.** A from-scratch C#/WinUI 3/.NET 8
+> rewrite of this app lives under [`winui/`](winui/README.md). It replaces
+> the Tkinter UI with a native MVVM Fluent shell, runs ML via ONNX
+> Runtime (no Python at runtime), decodes JXR through WIC, and ships as
+> an MSIX. The Python app below remains the reference implementation
+> until the rewrite reaches parity. See [`winui/README.md`](winui/README.md)
+> for build instructions and [`tools/onnx-export/`](tools/onnx-export/README.md)
+> for the PyTorch → ONNX exporter.
+
 ## Features
 
 ### Core Functionality

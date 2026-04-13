@@ -1,0 +1,20 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.userprefs
+*.swp
+*.DS_Store
+Generated Files/
+AppPackages/
+BundleArtifacts/
+*.appx
+*.appxbundle
+*.appxupload
+*.msix
+*.msixbundle
+*.pfx
+TestResults/
+artifacts/
+.idea/
