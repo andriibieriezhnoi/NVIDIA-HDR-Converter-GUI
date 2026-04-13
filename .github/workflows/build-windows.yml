@@ -1,0 +1,73 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install CPU-only PyTorch
+        # The CI runner has no NVIDIA GPU, so install the CPU wheels. End users
+        # with CUDA can replace this in the produced .exe by re-running locally
+        # with their own torch build.
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+
+      - name: Install Python dependencies
+        shell: pwsh
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Pre-fetch bundled ffmpeg
+        # Triggers imageio-ffmpeg's one-time ffmpeg.exe download so PyInstaller
+        # can pick it up via build.spec.
+        shell: pwsh
+        run: |
+          python -c "import imageio_ffmpeg, os; p = imageio_ffmpeg.get_ffmpeg_exe(); print('ffmpeg:', p); assert os.path.exists(p)"
+
+      - name: Build with PyInstaller
+        shell: pwsh
+        run: pyinstaller --noconfirm build.spec
+
+      - name: Smoke-test the executable
+        # We can't actually launch the GUI on a headless runner, but we can at
+        # least confirm the binary was produced and is non-empty.
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist/HDRConverter.exe")) { throw "HDRConverter.exe was not produced" }
+          $size = (Get-Item "dist/HDRConverter.exe").Length
+          Write-Host "HDRConverter.exe size: $([math]::Round($size/1MB,1)) MB"
+          if ($size -lt 50MB) { throw "Executable suspiciously small ($size bytes)" }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HDRConverter-windows-x64
+          path: dist/HDRConverter.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/HDRConverter.exe

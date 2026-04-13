@@ -21,11 +21,11 @@ try:
 except Exception:
     pass
 
-# Additional data files
-datas = [
-    ('splash.jpg', '.'),
-    ('app.ico', '.'),
-] + tkmt_datas + imagecodecs_datas
+# Additional data files. Only include files that actually exist so the build
+# does not fail in clean checkouts.
+_optional_datas = [('splash.jpg', '.'), ('app.ico', '.'), ('interface.jpg', '.')]
+datas = [(src, dst) for src, dst in _optional_datas if os.path.exists(src)]
+datas += tkmt_datas + imagecodecs_datas
 
 # Hidden imports for TKinterModernThemes and imagecodecs
 hiddenimports = [
@@ -39,7 +39,7 @@ hiddenimports = [
 ] + collect_submodules('TKinterModernThemes') + collect_submodules('imagecodecs')
 
 a = Analysis(
-    ['app.py'],
+    ['NHC.py'],
     pathex=[],
     binaries=imagecodecs_binaries + ffmpeg_binaries,
     datas=datas,
@@ -76,5 +76,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='app.ico',
+    icon='app.ico' if os.path.exists('app.ico') else None,
 )
