@@ -1,0 +1,15 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <Deterministic>true</Deterministic>
+    <NeutralLanguage>en-US</NeutralLanguage>
+    <Company>NHC</Company>
+    <Product>NVIDIA HDR Converter</Product>
+    <Copyright>© NHC Contributors</Copyright>
+    <Version>2.0.0-alpha.1</Version>
+  </PropertyGroup>
+</Project>
