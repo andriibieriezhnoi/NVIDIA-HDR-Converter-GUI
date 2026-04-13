@@ -11,8 +11,8 @@ public sealed record ConversionRequest(
     OutputFormat Format,
     ToneMapperKind ToneMapper,
     ToneMapperSettings ToneMapperSettings,
-    bool EnableEnhancement,
-    float EnhancementStrength,
+    float ClaheStrength,
+    float VibranceStrength,
     float EdgeStrength);
 
 public enum OutputFormat

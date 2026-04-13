@@ -11,6 +11,5 @@
   <ItemGroup>
     <InternalsVisibleTo Include="NHC.Core.Tests" />
     <InternalsVisibleTo Include="NHC.Imaging.Windows" />
-    <InternalsVisibleTo Include="NHC.ML" />
   </ItemGroup>
 </Project>

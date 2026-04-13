@@ -64,8 +64,8 @@ public partial class BatchViewModel : ObservableObject
                 Format: OutputFormat.Jpeg,
                 ToneMapper: ToneMapper,
                 ToneMapperSettings: ToneMapperSettings.Default,
-                EnableEnhancement: false,
-                EnhancementStrength: 0.5f,
+                ClaheStrength: 0f,
+                VibranceStrength: 0f,
                 EdgeStrength: 0f)).ToList();
 
             await foreach (var evt in _pipeline.ConvertBatchAsync(requests, ct).ConfigureAwait(true))

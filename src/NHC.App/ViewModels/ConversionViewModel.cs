@@ -35,8 +35,8 @@ public partial class ConversionViewModel : ObservableObject
     [ObservableProperty] private ToneMapperKind _toneMapper = ToneMapperKind.Auto;
     [ObservableProperty] private float _exposure = 1.0f;
     [ObservableProperty] private float _gamma = 1.0f;
-    [ObservableProperty] private bool _enhanceEnabled;
-    [ObservableProperty] private float _enhanceStrength = 0.5f;
+    [ObservableProperty] private float _claheStrength = 0.0f;
+    [ObservableProperty] private float _vibranceStrength = 0.0f;
     [ObservableProperty] private float _edgeStrength = 0.0f;
     [ObservableProperty] private float _progress;
     [ObservableProperty] private string _statusMessage = "Ready.";
@@ -72,8 +72,8 @@ public partial class ConversionViewModel : ObservableObject
                 Format: OutputFormat.Jpeg,
                 ToneMapper: ToneMapper,
                 ToneMapperSettings: new ToneMapperSettings(Exposure, Gamma, 1000f),
-                EnableEnhancement: EnhanceEnabled,
-                EnhancementStrength: EnhanceStrength,
+                ClaheStrength: ClaheStrength,
+                VibranceStrength: VibranceStrength,
                 EdgeStrength: EdgeStrength);
 
             var result = await _pipeline.ConvertAsync(request, ct).ConfigureAwait(true);

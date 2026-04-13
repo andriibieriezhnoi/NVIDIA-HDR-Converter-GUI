@@ -1,13 +1,11 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using NHC.App.Services;
 using NHC.App.ViewModels;
 using NHC.Core.Abstractions;
 using NHC.Core.Pipeline;
 using NHC.Imaging.Windows;
-using NHC.ML;
 using Serilog;
 
 namespace NHC.App;
@@ -51,13 +49,6 @@ public partial class App : Application
                 services.AddSingleton<IHdrDecoder, JxrDecoder>();
                 services.AddSingleton<ISdrEncoder, WicJpegEncoder>();
                 services.AddSingleton<IHdrEncoder, WicTiffEncoder>();
-
-                services.AddSingleton(sp =>
-                {
-                    var modelPath = Path.Combine(AppContext.BaseDirectory, "Assets", "models", "enhancer.onnx");
-                    return new OrtEnvironment(modelPath, sp.GetRequiredService<ILogger<OrtEnvironment>>());
-                });
-                services.AddSingleton<IColorEnhancer, ColorEnhancer>();
 
                 services.AddSingleton<ConversionPipeline>();
 

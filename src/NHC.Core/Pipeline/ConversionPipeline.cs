@@ -20,20 +20,17 @@ public sealed class ConversionPipeline
     private readonly IHdrDecoder _decoder;
     private readonly ISdrEncoder _jpegEncoder;
     private readonly IHdrEncoder _tiffEncoder;
-    private readonly IColorEnhancer? _enhancer;
     private readonly ILogger<ConversionPipeline> _log;
 
     public ConversionPipeline(
         IHdrDecoder decoder,
         ISdrEncoder jpegEncoder,
         IHdrEncoder tiffEncoder,
-        IColorEnhancer? enhancer = null,
         ILogger<ConversionPipeline>? logger = null)
     {
         _decoder = decoder ?? throw new ArgumentNullException(nameof(decoder));
         _jpegEncoder = jpegEncoder ?? throw new ArgumentNullException(nameof(jpegEncoder));
         _tiffEncoder = tiffEncoder ?? throw new ArgumentNullException(nameof(tiffEncoder));
-        _enhancer = enhancer;
         _log = logger ?? NullLogger<ConversionPipeline>.Instance;
     }
 
@@ -133,11 +130,18 @@ public sealed class ConversionPipeline
         ct.ThrowIfCancellationRequested();
 
         var postEnhance = mapped;
-        if (request.EnableEnhancement && _enhancer is { IsAvailable: true } enhancer)
+        if (request.ClaheStrength > 0f || request.VibranceStrength > 0f)
         {
-            Report(ProgressStage.Enhancing, 0.55f);
-            postEnhance = await enhancer.EnhanceAsync(mapped, request.EnhancementStrength, ct)
-                .ConfigureAwait(false);
+            Report(ProgressStage.Enhancing, 0.50f);
+            if (request.ClaheStrength > 0f)
+            {
+                postEnhance = Clahe.Apply(postEnhance, request.ClaheStrength);
+            }
+            if (request.VibranceStrength > 0f)
+            {
+                postEnhance = Vibrance.Apply(postEnhance, request.VibranceStrength);
+            }
+            ct.ThrowIfCancellationRequested();
         }
 
         if (request.EdgeStrength > 0f)

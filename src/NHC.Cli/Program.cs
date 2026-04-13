@@ -22,13 +22,13 @@ public static class Program
         var toneOpt = new Option<ToneMapperKind>("--tone", () => ToneMapperKind.Auto, "Tone mapper kind");
         var exposureOpt = new Option<float>("--exposure", () => 1.0f, "Pre-tone-map exposure multiplier");
         var gammaOpt = new Option<float>("--gamma", () => 1.0f, "Pre-tone-map gamma");
-        var enhanceOpt = new Option<bool>("--enhance", () => false, "Enable AI color enhancement");
-        var strengthOpt = new Option<float>("--strength", () => 0.5f, "Enhancement strength [0,1]");
+        var claheOpt = new Option<float>("--clahe", () => 0f, "CLAHE contrast-enhancement strength [0,1]");
+        var vibranceOpt = new Option<float>("--vibrance", () => 0f, "Vibrance (smart saturation) strength [0,1]");
         var edgeOpt = new Option<float>("--edge", () => 0f, "Sobel edge enhancement [0,1]");
 
         var root = new RootCommand("NVIDIA HDR Converter — command-line")
         {
-            inputOpt, outputOpt, toneOpt, exposureOpt, gammaOpt, enhanceOpt, strengthOpt, edgeOpt,
+            inputOpt, outputOpt, toneOpt, exposureOpt, gammaOpt, claheOpt, vibranceOpt, edgeOpt,
         };
 
         root.SetHandler(async ctx =>
@@ -39,8 +39,8 @@ public static class Program
                 ctx.ParseResult.GetValueForOption(toneOpt),
                 ctx.ParseResult.GetValueForOption(exposureOpt),
                 ctx.ParseResult.GetValueForOption(gammaOpt),
-                ctx.ParseResult.GetValueForOption(enhanceOpt),
-                ctx.ParseResult.GetValueForOption(strengthOpt),
+                ctx.ParseResult.GetValueForOption(claheOpt),
+                ctx.ParseResult.GetValueForOption(vibranceOpt),
                 ctx.ParseResult.GetValueForOption(edgeOpt),
                 ctx.GetCancellationToken()).ConfigureAwait(false);
         });
@@ -54,8 +54,8 @@ public static class Program
         ToneMapperKind tone,
         float exposure,
         float gamma,
-        bool enhance,
-        float strength,
+        float clahe,
+        float vibrance,
         float edge,
         CancellationToken ct)
     {
@@ -79,8 +79,8 @@ public static class Program
             Format: format,
             ToneMapper: tone,
             ToneMapperSettings: new ToneMapperSettings(exposure, gamma, 1000f),
-            EnableEnhancement: enhance,
-            EnhancementStrength: strength,
+            ClaheStrength: clahe,
+            VibranceStrength: vibrance,
             EdgeStrength: edge);
 
         var result = await pipeline.ConvertAsync(request, ct).ConfigureAwait(false);

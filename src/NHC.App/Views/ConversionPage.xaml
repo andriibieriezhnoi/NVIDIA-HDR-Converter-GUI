@@ -54,14 +54,16 @@
                 <Slider Minimum="0.1" Maximum="3.0" StepFrequency="0.05"
                         Value="{x:Bind ViewModel.Gamma, Mode=TwoWay}" />
 
-                <TextBlock Text="AI enhancement" Style="{StaticResource SectionHeader}" />
-                <ToggleSwitch IsOn="{x:Bind ViewModel.EnhanceEnabled, Mode=TwoWay}"
-                              OnContent="On" OffContent="Off" />
-                <TextBlock Text="Strength" />
+                <TextBlock Text="Enhancement" Style="{StaticResource SectionHeader}" />
+                <TextBlock Text="CLAHE (local contrast)" />
                 <Slider Minimum="0" Maximum="1" StepFrequency="0.01"
-                        Value="{x:Bind ViewModel.EnhanceStrength, Mode=TwoWay}" />
+                        Value="{x:Bind ViewModel.ClaheStrength, Mode=TwoWay}" />
 
-                <TextBlock Text="Edge enhancement" />
+                <TextBlock Text="Vibrance (smart saturation)" />
+                <Slider Minimum="0" Maximum="1" StepFrequency="0.01"
+                        Value="{x:Bind ViewModel.VibranceStrength, Mode=TwoWay}" />
+
+                <TextBlock Text="Edge enhancement (Sobel)" />
                 <Slider Minimum="0" Maximum="1" StepFrequency="0.01"
                         Value="{x:Bind ViewModel.EdgeStrength, Mode=TwoWay}" />
 

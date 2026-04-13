@@ -1,13 +1,12 @@
 # NVIDIA HDR Converter
 
 Native Windows app that converts NVIDIA HDR screenshots (`.jxr` from Ansel
-or the Xbox Game Bar) to **JPEG** or **16-bit TIFF**, with intelligent
-tone mapping and optional AI color enhancement.
+or the Xbox Game Bar) to **JPEG** or **16-bit TIFF** with intelligent
+tone mapping and deterministic classical color enhancement.
 
-Built on **.NET 8 / WinUI 3 / MVVM**. ML runs via **ONNX Runtime** with
-a CUDA execution provider and CPU fallback — no Python at runtime. JXR
-decoding goes through Windows Imaging Component directly, so there are
-no third-party codec DLLs to ship.
+Built on **.NET 8 / WinUI 3 / MVVM**. JXR decoding goes through Windows
+Imaging Component directly, so there are no third-party codec DLLs to
+ship, and no ML runtime or model files are required at runtime.
 
 ## Features
 
@@ -16,9 +15,9 @@ no third-party codec DLLs to ship.
   Reinhard with white point. An **Auto** selector picks the best
   operator from simple image statistics (dynamic range, shadow/highlight
   fraction, mean luminance).
-- **AI color enhancement** — compact UNet color-delta network, tiled at
-  512 px for 4K safety. Blends into the tone-mapped output by a
-  user-controlled strength.
+- **CLAHE** — Contrast-Limited Adaptive Histogram Equalization on the
+  luminance channel with 8×8 tiles and bilinear CDF blending.
+- **Vibrance** — smart saturation that protects already-saturated pixels.
 - **Edge enhancement** — Sobel with an amplitude cap at 20% of local
   luminance to avoid haloing.
 - **Bayer 8×8 ordered dither** before 8-bit quantisation kills banding
@@ -36,22 +35,19 @@ no third-party codec DLLs to ship.
 ├── src/
 │   ├── NHC.Core/                         # .NET 8, cross-platform — testable on any OS
 │   ├── NHC.Imaging.Windows/              # net8.0-windows, WIC JXR / JPEG / TIFF
-│   ├── NHC.ML/                           # ONNX Runtime session + tiled enhancer
 │   ├── NHC.Cli/                          # headless `nhc` converter
 │   └── NHC.App/                          # WinUI 3 MSIX shell
-├── tests/NHC.Core.Tests/                 # xUnit + FluentAssertions
-├── assets/models/                        # enhancer.onnx lives here at runtime
-└── tools/onnx-export/                    # PyTorch → ONNX exporter
+└── tests/NHC.Core.Tests/                 # xUnit + FluentAssertions
 ```
 
 ## Build
 
-Prerequisites on Windows 10 19041+:
+Prerequisites on Windows 10 17763+:
 
 - Visual Studio 2022 17.10+ with the **.NET Desktop** and **Windows App
   SDK C#** workloads, or
-- the .NET 8 SDK + Windows App SDK build tooling (`dotnet workload
-  install microsoft-windowsappsdk`).
+- the .NET 8 SDK (Windows App SDK ships via NuGet — no `dotnet workload
+  install` required).
 
 ```powershell
 dotnet restore NHC.sln
@@ -77,20 +73,8 @@ Or run the CLI:
 
 ```powershell
 dotnet run --project src/NHC.Cli -- --in shot.jxr --out shot.jpg --tone auto
+dotnet run --project src/NHC.Cli -- --in shot.jxr --out shot.jpg --tone auto --clahe 0.5 --vibrance 0.3
 ```
-
-## ONNX model asset
-
-The WinUI app loads `assets/models/enhancer.onnx` at startup. To produce
-it, install the exporter's dependencies and run the script:
-
-```bash
-pip install -r tools/onnx-export/requirements.txt
-python tools/onnx-export/export.py --checkpoint path/to/trained.pt
-```
-
-Running without `--checkpoint` writes an untrained graph that is only
-useful for smoke-testing the ORT session wiring.
 
 ## Architecture notes
 
