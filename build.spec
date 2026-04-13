@@ -10,6 +10,17 @@ tkmt_datas = collect_data_files('TKinterModernThemes')
 imagecodecs_datas = collect_data_files('imagecodecs')
 imagecodecs_binaries = collect_dynamic_libs('imagecodecs')
 
+# Bundle the ffmpeg binary that ships with imageio-ffmpeg so the standalone
+# build can do HDR video conversion without requiring system ffmpeg.
+ffmpeg_binaries = []
+try:
+    import imageio_ffmpeg
+    _ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+    if _ffmpeg_path and os.path.exists(_ffmpeg_path):
+        ffmpeg_binaries.append((_ffmpeg_path, os.path.join('imageio_ffmpeg', 'binaries')))
+except Exception:
+    pass
+
 # Additional data files
 datas = [
     ('splash.jpg', '.'),
@@ -24,12 +35,13 @@ hiddenimports = [
     'imagecodecs',
     'imagecodecs._imagecodecs',
     'imagecodecs.imagecodecs',
+    'imageio_ffmpeg',
 ] + collect_submodules('TKinterModernThemes') + collect_submodules('imagecodecs')
 
 a = Analysis(
     ['app.py'],
     pathex=[],
-    binaries=imagecodecs_binaries,
+    binaries=imagecodecs_binaries + ffmpeg_binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

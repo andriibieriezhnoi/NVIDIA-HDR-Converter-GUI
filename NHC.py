@@ -3,6 +3,9 @@ import sys
 import gc
 import traceback
 import io
+import re
+import shutil
+import subprocess
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from tkinter import ttk
@@ -50,6 +53,32 @@ DEFAULT_PREGAMMA = "1.0"
 DEFAULT_AUTOEXPOSURE = "1.0"
 SUPPORTED_TONE_MAPS = {"perceptual", "adaptive", "hable", "reinhard", "filmic", "aces", "uncharted2", "mantiuk06",
                        "drago03"}
+
+# Video conversion: HDR (HEVC HDR10) -> SDR using user-selected codec.
+# Pix-fmt and CRF defaults chosen as a reasonable visually-lossless quality target.
+VIDEO_CODECS = {
+    "H.264 (libx264)":   {"vcodec": "libx264",   "pix_fmt": "yuv420p", "extra": ["-crf", "20", "-preset", "medium"]},
+    "H.265 (libx265)":   {"vcodec": "libx265",   "pix_fmt": "yuv420p", "extra": ["-crf", "23", "-preset", "medium"]},
+    "AV1 (libsvtav1)":   {"vcodec": "libsvtav1", "pix_fmt": "yuv420p", "extra": ["-crf", "30", "-preset", "8"]},
+}
+VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".m4v")
+
+
+def get_ffmpeg_exe():
+    """Locate an ffmpeg binary, preferring imageio-ffmpeg's bundled one.
+
+    Returns the absolute path to ffmpeg, or None if it is not available.
+    """
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        # Fall back to PATH lookup so users who already have ffmpeg installed
+        # are not forced to also install imageio-ffmpeg.
+        return shutil.which("ffmpeg")
+
+
+FFMPEG_AVAILABLE = get_ffmpeg_exe() is not None
 
 PRETRAINED_MODELS = {
     'vgg': models.vgg16,
@@ -1335,6 +1364,217 @@ def validate_parameters(pre_gamma: str, auto_exposure: str) -> None:
         raise ValueError("Pre-gamma and auto-exposure must be numeric")
 
 
+class VideoConverter:
+    """Streams an HDR video through ffmpeg, tone-maps each frame in our pipeline,
+    and re-encodes to an SDR codec selected by the user.
+
+    The decode side asks ffmpeg to convert HDR (PQ/HLG, BT.2020) to scene-linear
+    BT.709 floats packed as 16-bit ``rgb48le``. We then run our own
+    ``AdvancedToneMapper`` per frame so the look matches the JXR image path,
+    quantize to 8-bit ``rgb24`` and pipe into a second ffmpeg process for
+    encoding. Audio is copied from the source file.
+    """
+
+    # Decode filter graph: HDR PQ/HLG BT.2020 -> scene-linear BT.709 floats.
+    # We deliberately stop at "linear BT.709" (no tonemap=) so that our own
+    # AdvancedToneMapper produces the final look.
+    _DECODE_VF = (
+        "zscale=t=linear:npl=100,"
+        "format=gbrpf32le,"
+        "zscale=p=bt709:m=bt709:r=tv,"
+        "format=rgb48le"
+    )
+
+    def __init__(self, ffmpeg_exe):
+        self.ffmpeg = ffmpeg_exe
+
+    # ---------- probing ----------
+
+    def probe(self, path):
+        """Return (width, height, fps, total_frames, has_audio) by parsing
+        ``ffmpeg -i`` stderr. Avoids requiring a separate ffprobe binary
+        (imageio-ffmpeg only ships ffmpeg)."""
+        if not self.ffmpeg:
+            raise RuntimeError("ffmpeg binary not available")
+
+        proc = subprocess.run(
+            [self.ffmpeg, "-hide_banner", "-i", path],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+        )
+        text = proc.stderr.decode("utf-8", errors="replace")
+
+        size_match = re.search(r",\s*(\d{2,5})x(\d{2,5})[\s,\[]", text)
+        if not size_match:
+            raise RuntimeError("Could not determine video resolution from ffmpeg output.")
+        width, height = int(size_match.group(1)), int(size_match.group(2))
+
+        fps = 30.0
+        fps_match = re.search(r"(\d+(?:\.\d+)?)\s*fps", text)
+        if fps_match:
+            fps = float(fps_match.group(1))
+
+        total_frames = 0
+        dur_match = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.\d+)", text)
+        if dur_match:
+            h, m, s = int(dur_match.group(1)), int(dur_match.group(2)), float(dur_match.group(3))
+            duration = h * 3600 + m * 60 + s
+            total_frames = max(1, int(round(duration * fps)))
+
+        has_audio = bool(re.search(r"Stream #\d+:\d+.*Audio:", text))
+        return width, height, fps, total_frames, has_audio
+
+    # ---------- decode / encode pipes ----------
+
+    def open_decoder(self, path):
+        cmd = [
+            self.ffmpeg, "-hide_banner", "-loglevel", "error",
+            "-i", path,
+            "-vf", self._DECODE_VF,
+            "-f", "rawvideo", "-pix_fmt", "rgb48le",
+            "pipe:1",
+        ]
+        return subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=10 ** 7)
+
+    def open_encoder(self, out_path, width, height, fps, codec_cfg, src_path, has_audio):
+        # Input 0: our raw rgb24 frames on stdin.
+        # Input 1: source file (for audio passthrough only).
+        cmd = [
+            self.ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "rawvideo", "-pix_fmt", "rgb24",
+            "-s", f"{width}x{height}", "-r", f"{fps}",
+            "-i", "pipe:0",
+        ]
+        if has_audio:
+            cmd += ["-i", src_path, "-map", "0:v:0", "-map", "1:a:0?", "-c:a", "aac", "-b:a", "192k"]
+        else:
+            cmd += ["-map", "0:v:0"]
+
+        cmd += [
+            "-c:v", codec_cfg["vcodec"],
+            "-pix_fmt", codec_cfg["pix_fmt"],
+            "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709",
+            "-movflags", "+faststart",
+            *codec_cfg["extra"],
+            out_path,
+        ]
+        return subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=10 ** 7)
+
+    # ---------- main loop ----------
+
+    def convert(self, in_path, out_path, codec_cfg, device, jxr_loader, color_processor,
+                tone_method=None, use_enhancement=False, color_strength=0.0, edge_strength=0.0,
+                progress_cb=None, cancel_event=None, first_frame_cb=None):
+        """Run the conversion. ``progress_cb(done, total)`` is called after each
+        frame; ``cancel_event`` (a ``threading.Event``) lets the UI abort."""
+
+        if not self.ffmpeg:
+            raise RuntimeError("ffmpeg is not available. Install imageio-ffmpeg or system ffmpeg.")
+
+        width, height, fps, total_frames, has_audio = self.probe(in_path)
+        frame_bytes = width * height * 3 * 2  # rgb48le = 6 bytes/pixel
+
+        # Build the tone mapper once for the whole video using the loader's
+        # current metadata (BT.2020 / PQ defaults match HDR10).
+        tone_mapper = AdvancedToneMapper(device, jxr_loader.metadata)
+        # Resolve "auto" once on the first frame so the look stays consistent
+        # across the entire clip.
+        resolved_method = tone_method
+
+        decoder = self.open_decoder(in_path)
+        encoder = self.open_encoder(out_path, width, height, fps, codec_cfg, in_path, has_audio)
+
+        done = 0
+        try:
+            while True:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise RuntimeError("Conversion cancelled by user.")
+
+                raw = decoder.stdout.read(frame_bytes)
+                if not raw or len(raw) < frame_bytes:
+                    break
+
+                # rgb48le -> float32 in [0,1], shape (1, 3, H, W)
+                arr = np.frombuffer(raw, dtype=np.uint16).astype(np.float32) / 65535.0
+                arr = arr.reshape(height, width, 3).transpose(2, 0, 1)
+                linear_tensor = torch.from_numpy(arr).unsqueeze(0).to(device)
+
+                if resolved_method is None:
+                    stats = tone_mapper.analyze_image_statistics(linear_tensor)
+                    resolved_method = tone_mapper.select_optimal_tonemap(stats)
+                    logging.info(f"Video tone mapping resolved to: {resolved_method}")
+
+                tonemapped = tone_mapper.apply_tone_mapping(linear_tensor.clone(), method=resolved_method)
+                srgb = jxr_loader.linear_to_srgb(tonemapped)
+
+                if use_enhancement and color_strength > 0:
+                    srgb = color_processor.process_image(
+                        srgb.clone(),
+                        color_strength=color_strength,
+                        edge_strength=edge_strength,
+                        use_enhancement=True,
+                    )
+
+                # Quantize to rgb24
+                out = torch.clamp(srgb, 0.0, 1.0).squeeze(0).permute(1, 2, 0)
+                if out.is_cuda:
+                    out = out.cpu()
+                out_bytes = (out.float().numpy() * 255.0 + 0.5).astype(np.uint8).tobytes()
+
+                try:
+                    encoder.stdin.write(out_bytes)
+                except BrokenPipeError as e:
+                    err = encoder.stderr.read().decode("utf-8", errors="replace") if encoder.stderr else ""
+                    raise RuntimeError(f"Encoder process exited unexpectedly: {err.strip() or e}")
+
+                if first_frame_cb is not None and done == 0:
+                    try:
+                        first_frame_cb(linear_tensor.detach().cpu(), srgb.detach().cpu())
+                    except Exception as cb_err:
+                        logging.debug(f"first_frame_cb failed: {cb_err}")
+
+                done += 1
+                if progress_cb is not None:
+                    progress_cb(done, total_frames)
+
+                # Free per-frame GPU memory aggressively for long clips.
+                del linear_tensor, tonemapped, srgb, out
+                if device.type == "cuda" and (done & 0x1F) == 0:
+                    torch.cuda.empty_cache()
+        finally:
+            try:
+                if encoder.stdin and not encoder.stdin.closed:
+                    encoder.stdin.close()
+            except Exception:
+                pass
+            enc_err = b""
+            try:
+                enc_err = encoder.stderr.read() if encoder.stderr else b""
+            except Exception:
+                pass
+            encoder.wait()
+            try:
+                decoder.terminate()
+                decoder.wait(timeout=5)
+            except Exception:
+                pass
+
+            # If we cancelled or the encoder failed, remove a partial file so
+            # the user is not left with something that looks valid but isn't.
+            if encoder.returncode != 0 or (cancel_event is not None and cancel_event.is_set()):
+                try:
+                    if os.path.exists(out_path):
+                        os.remove(out_path)
+                except OSError:
+                    pass
+                if encoder.returncode != 0:
+                    raise RuntimeError(
+                        f"ffmpeg encoder failed (exit {encoder.returncode}): "
+                        f"{enc_err.decode('utf-8', errors='replace').strip()}"
+                    )
+
+        return done
+
+
 class App(TKMT.ThemedTKinterFrame if TKMT else tk.Tk):
     """
     Main application class for the NVIDIA HDR Converter GUI.
@@ -1381,6 +1621,10 @@ class App(TKMT.ThemedTKinterFrame if TKMT else tk.Tk):
         self.after_image_ref = None
         self.before_hist_ref = None
         self.after_hist_ref = None
+
+        # Video conversion state
+        self.video_cancel_event = threading.Event()
+        self.video_converter = VideoConverter(get_ffmpeg_exe()) if FFMPEG_AVAILABLE else None
 
         main_frame = ttk.Frame(self.master, padding=(10, 10))
         main_frame.grid(row=0, column=0, sticky="nsew")
@@ -1442,7 +1686,7 @@ class App(TKMT.ThemedTKinterFrame if TKMT else tk.Tk):
         logging.info(f"Application initialized on {self.device_manager.device}")
 
     def _setup_mode_selection(self, parent_frame):
-        """Sets up the mode selection radio buttons (Single File or Folder)."""
+        """Sets up the mode selection radio buttons (Single File / Folder / Video)."""
         mode_frame = ttk.LabelFrame(parent_frame, text="Mode Selection", padding=(10, 10))
         mode_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         self.mode_var = tk.StringVar(value="single")
@@ -1452,10 +1696,19 @@ class App(TKMT.ThemedTKinterFrame if TKMT else tk.Tk):
         folder_radio = ttk.Radiobutton(mode_frame, text="Folder", variable=self.mode_var, value="folder",
                                        command=self.update_mode)
         folder_radio.grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        video_label = "Video (HDR\u2192SDR)" if FFMPEG_AVAILABLE else "Video (ffmpeg missing)"
+        video_state = "normal" if FFMPEG_AVAILABLE else "disabled"
+        video_radio = ttk.Radiobutton(mode_frame, text=video_label, variable=self.mode_var, value="video",
+                                      command=self.update_mode, state=video_state)
+        video_radio.grid(row=0, column=2, padx=5, pady=5, sticky="w")
 
     def update_mode(self):
-        """Updates the UI based on the selected mode (Single File or Folder)."""
+        """Updates the UI based on the selected mode (Single File / Folder / Video)."""
         mode = self.mode_var.get()
+        # Toggle the video codec / image format widgets visibility per mode.
+        self._set_video_widgets_visible(mode == "video")
+        self._set_image_format_visible(mode != "video")
+
         if mode == "single":
             self.file_frame.config(text="File Selection")
             self.input_label.config(text="Input JXR:")
@@ -1465,7 +1718,7 @@ class App(TKMT.ThemedTKinterFrame if TKMT else tk.Tk):
             self.output_browse_button.grid()
             self.status_label.config(text="")
             self.convert_btn.config(state='normal')
-        else:
+        elif mode == "folder":
             self.file_frame.config(text="Folder Selection")
             self.input_label.config(text="Input Folder:")
             self.output_label.config(text="Output Folder:")
@@ -1494,6 +1747,46 @@ class App(TKMT.ThemedTKinterFrame if TKMT else tk.Tk):
             self.before_hist_ref = None
             self.after_hist_label.config(image="", text="No Histogram")
             self.after_hist_ref = None
+        else:  # video
+            self.file_frame.config(text="Video Selection")
+            self.input_label.config(text="Input Video:")
+            self.output_label.config(text="Output Video Path:")
+            self.output_label.grid()
+            self.output_entry.grid()
+            self.output_browse_button.grid()
+            self.convert_btn.config(state='normal')
+            self.status_label.config(
+                text="Tip: AI Enhancement runs per-frame and is very slow for video.",
+                foreground="#CCCCCC",
+            )
+            self.before_label.config(image="", text="No Preview")
+            self.before_image_ref = None
+            self.after_label.config(image="", text="No Preview")
+            self.after_image_ref = None
+            self.before_hist_label.config(image="", text="No Histogram")
+            self.before_hist_ref = None
+            self.after_hist_label.config(image="", text="No Histogram")
+            self.after_hist_ref = None
+
+    def _set_video_widgets_visible(self, visible):
+        widgets = getattr(self, "_video_widgets", None)
+        if not widgets:
+            return
+        for w in widgets:
+            if visible:
+                w.grid()
+            else:
+                w.grid_remove()
+
+    def _set_image_format_visible(self, visible):
+        widgets = getattr(self, "_image_format_widgets", None)
+        if not widgets:
+            return
+        for w in widgets:
+            if visible:
+                w.grid()
+            else:
+                w.grid_remove()
 
     def _setup_file_selection(self, parent_frame):
         """Sets up file or folder selection widgets."""
@@ -1516,8 +1809,9 @@ class App(TKMT.ThemedTKinterFrame if TKMT else tk.Tk):
         self.output_browse_button = ttk.Button(self.file_frame, text="Browse...", command=self.browse_output)
         self.output_browse_button.grid(row=3, column=2, padx=(0, 5), pady=2)
 
-        # Output Format
-        ttk.Label(self.file_frame, text="Output Format:").grid(row=4, column=0, sticky="w", padx=(0, 5), pady=(10, 5))
+        # Output Format (image modes only)
+        self.output_format_label = ttk.Label(self.file_frame, text="Output Format:")
+        self.output_format_label.grid(row=4, column=0, sticky="w", padx=(0, 5), pady=(10, 5))
         self.output_format_var = tk.StringVar(value="JPEG")
         self.output_format_combo = ttk.Combobox(
             self.file_frame,
@@ -1527,6 +1821,24 @@ class App(TKMT.ThemedTKinterFrame if TKMT else tk.Tk):
             width=15
         )
         self.output_format_combo.grid(row=4, column=1, padx=(0, 5), pady=(10, 5), sticky="w")
+        self._image_format_widgets = [self.output_format_label, self.output_format_combo]
+
+        # Video codec (video mode only). Hidden by default; shown by update_mode().
+        self.video_codec_label = ttk.Label(self.file_frame, text="Video Codec:")
+        self.video_codec_label.grid(row=6, column=0, sticky="w", padx=(0, 5), pady=(10, 5))
+        self.video_codec_var = tk.StringVar(value="H.265 (libx265)")
+        self.video_codec_combo = ttk.Combobox(
+            self.file_frame,
+            textvariable=self.video_codec_var,
+            values=list(VIDEO_CODECS.keys()),
+            state="readonly",
+            width=18,
+        )
+        self.video_codec_combo.grid(row=6, column=1, padx=(0, 5), pady=(10, 5), sticky="w")
+        self._video_widgets = [self.video_codec_label, self.video_codec_combo]
+        # Hide until user picks Video mode.
+        for w in self._video_widgets:
+            w.grid_remove()
 
         # Tone Mapping Selection
         ttk.Label(self.file_frame, text="Tone Mapping:").grid(row=5, column=0, sticky="w", padx=(0, 5), pady=(10, 5))
@@ -1830,6 +2142,23 @@ class App(TKMT.ThemedTKinterFrame if TKMT else tk.Tk):
     def browse_input(self):
         """Handles the input file or folder browsing."""
         mode = self.mode_var.get()
+        if mode == "video":
+            filename = filedialog.askopenfilename(
+                title="Select Input HDR Video",
+                filetypes=[("HDR Video", "*.mp4 *.mkv *.mov *.m4v"), ("All files", "*.*")],
+            )
+            if filename:
+                self.input_entry.delete(0, tk.END)
+                self.input_entry.insert(0, filename)
+                base, _ = os.path.splitext(filename)
+                self.output_entry.delete(0, tk.END)
+                self.output_entry.insert(0, base + "_sdr.mp4")
+                self.status_label.config(
+                    text=f"Selected: {os.path.basename(filename)}",
+                    foreground="#00FF00",
+                )
+            return
+
         if mode == "single":
             filename = filedialog.askopenfilename(
                 title="Select Input JXR File",
@@ -1877,6 +2206,16 @@ class App(TKMT.ThemedTKinterFrame if TKMT else tk.Tk):
     def browse_output(self):
         """Handles the output file browsing."""
         mode = self.mode_var.get()
+        if mode == "video":
+            filename = filedialog.asksaveasfilename(
+                title="Select Output Video File",
+                defaultextension=".mp4",
+                filetypes=[("MP4", "*.mp4"), ("Matroska", "*.mkv"), ("All files", "*.*")],
+            )
+            if filename:
+                self.output_entry.delete(0, tk.END)
+                self.output_entry.insert(0, filename)
+            return
         if mode == "single":
             filename = filedialog.asksaveasfilename(
                 title="Select Output File Base Name",
@@ -2176,10 +2515,12 @@ class App(TKMT.ThemedTKinterFrame if TKMT else tk.Tk):
         self.edge_scale.configure(state=state)
 
     def convert_image(self):
-        """Initiates the image conversion process based on selected mode."""
+        """Initiates the conversion process based on selected mode."""
         mode = self.mode_var.get()
         if mode == "single":
             self._convert_single_file()
+        elif mode == "video":
+            self._convert_video()
         else:
             self._convert_folder()
 
@@ -2397,6 +2738,118 @@ class App(TKMT.ThemedTKinterFrame if TKMT else tk.Tk):
                 self.safe_enable_convert_button()
 
         threading.Thread(target=process_files, daemon=True).start()
+
+    def _convert_video(self):
+        """Converts a single HDR video to SDR with the user-selected codec."""
+        if not FFMPEG_AVAILABLE or self.video_converter is None:
+            msg = ("ffmpeg is not available. Install it with:\n"
+                   "    pip install imageio-ffmpeg\n"
+                   "or place ffmpeg on your PATH, then restart the app.")
+            messagebox.showerror("ffmpeg missing", msg)
+            self.status_label.config(text="ffmpeg missing", foreground="red")
+            return
+
+        input_file = self.input_entry.get().strip()
+        output_file = self.output_entry.get().strip()
+        pre_gamma_str = self.pregamma_var.get().strip()
+        auto_exposure_str = self.autoexposure_var.get().strip()
+        use_enhancement = self.use_enhancement.get()
+        color_strength = 100.0 if use_enhancement else 0.0
+        edge_strength = self.edge_strength.get() if use_enhancement else 0.0
+
+        try:
+            validate_files(input_file, output_file)
+            validate_parameters(pre_gamma_str, auto_exposure_str)
+        except (FileNotFoundError, ValueError) as e:
+            messagebox.showerror("Error", str(e))
+            self.status_label.config(text=str(e), foreground="red")
+            return
+
+        if not input_file.lower().endswith(VIDEO_EXTS):
+            messagebox.showerror(
+                "Error",
+                f"Input must be one of: {', '.join(VIDEO_EXTS)}",
+            )
+            return
+
+        codec_name = self.video_codec_var.get()
+        codec_cfg = VIDEO_CODECS.get(codec_name)
+        if codec_cfg is None:
+            messagebox.showerror("Error", f"Unknown codec: {codec_name}")
+            return
+
+        # Apply the user's gamma/exposure tweaks to the loader so its tone
+        # mapper picks them up (mirrors the JXR path).
+        self.jxr_loader.selected_pre_gamma = float(pre_gamma_str)
+        self.jxr_loader.selected_auto_exposure = float(auto_exposure_str)
+
+        selected_method = self.get_selected_tone_mapping_method()  # None for auto
+        device = self.device_manager.get_device()
+
+        self.video_cancel_event.clear()
+        self.progress['value'] = 0
+        self.progress['maximum'] = 100
+        self.status_label.config(text="Probing video...", foreground="#CCCCCC")
+        self.master.update_idletasks()
+        # Repurpose the convert button as a Cancel toggle while encoding.
+        self.convert_btn.config(text="Cancel", command=self._cancel_video)
+
+        def progress_cb(done, total):
+            if total <= 0:
+                return
+            pct = max(0, min(100, int(done * 100 / total)))
+            self.master.after(0, lambda: self._set_video_progress(pct, done, total))
+
+        def first_frame_cb(linear_tensor, srgb_tensor):
+            try:
+                self.master.after(0, lambda: self.show_preview_from_tensor(srgb_tensor.clone(), is_before=False))
+            except Exception:
+                pass
+
+        def worker():
+            try:
+                frames = self.video_converter.convert(
+                    in_path=input_file,
+                    out_path=output_file,
+                    codec_cfg=codec_cfg,
+                    device=device,
+                    jxr_loader=self.jxr_loader,
+                    color_processor=self.color_processor,
+                    tone_method=selected_method,
+                    use_enhancement=use_enhancement,
+                    color_strength=color_strength,
+                    edge_strength=edge_strength,
+                    progress_cb=progress_cb,
+                    cancel_event=self.video_cancel_event,
+                    first_frame_cb=first_frame_cb,
+                )
+                self.safe_update_ui(
+                    f"Video conversion complete: {frames} frames -> {os.path.basename(output_file)}",
+                    "#00FF00",
+                )
+            except Exception as e:
+                logging.error(f"Video conversion failed: {e}", exc_info=True)
+                self.safe_update_ui(f"Video conversion failed: {e}", "red")
+            finally:
+                self.master.after(0, self._restore_convert_button)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _set_video_progress(self, pct, done, total):
+        with self.ui_lock:
+            self.progress['value'] = pct
+            self.status_label.config(
+                text=f"Encoding frame {done}/{total} ({pct}%)",
+                foreground="#CCCCCC",
+            )
+
+    def _cancel_video(self):
+        self.video_cancel_event.set()
+        self.status_label.config(text="Cancelling...", foreground="orange")
+
+    def _restore_convert_button(self):
+        with self.ui_lock:
+            self.convert_btn.config(text="Convert", command=self.convert_image, state='normal')
 
     def safe_update_ui(self, message, color):
         """Safely updates the UI status label from any thread."""

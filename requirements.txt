@@ -6,3 +6,4 @@ matplotlib>=3.9.3
 imagecodecs>=2024.9.22
 TKinterModernThemes>=1.10.4
 tifffile
+imageio-ffmpeg>=0.4.9

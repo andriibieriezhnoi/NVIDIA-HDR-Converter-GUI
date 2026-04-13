@@ -10,6 +10,9 @@ Convert NVIDIA HDR screenshots (JXR format) to JPEG with advanced AI enhancement
 
 ### Core Functionality
 - **Convert NVIDIA JXR (HDR)** screenshots to JPEG format
+- **Convert NVIDIA HDR videos** (HEVC HDR10 .mp4 / .mkv from ShadowPlay) to SDR
+  with a choice of modern codec (H.264, H.265, AV1), audio passthrough, and
+  the same tone-mapping pipeline as the image converter
 - **Intelligent HDR tone mapping** with automatic algorithm selection
 - **AI-powered color enhancement** using ensemble deep learning models
 - **Batch processing** support for folders
