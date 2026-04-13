@@ -24,12 +24,10 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Restore Core + tests
-        run: |
-          dotnet restore src/NHC.Core/NHC.Core.csproj
-          dotnet restore tests/NHC.Core.Tests/NHC.Core.Tests.csproj
+        run: dotnet restore tests/NHC.Core.Tests/NHC.Core.Tests.csproj
 
-      - name: Build Core
-        run: dotnet build src/NHC.Core/NHC.Core.csproj -c Release --no-restore
+      - name: Build Core + tests
+        run: dotnet build tests/NHC.Core.Tests/NHC.Core.Tests.csproj -c Release --no-restore
 
       - name: Test Core
         run: >
@@ -54,9 +52,6 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-
-      - name: Install Windows App SDK workload
-        run: dotnet workload install microsoft-windowsappsdk
 
       - name: Restore solution
         run: dotnet restore NHC.sln
@@ -90,9 +85,6 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-
-      - name: Install Windows App SDK workload
-        run: dotnet workload install microsoft-windowsappsdk
 
       - name: Publish NHC.App
         run: >
