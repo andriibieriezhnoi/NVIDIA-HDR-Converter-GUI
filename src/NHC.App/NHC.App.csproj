@@ -44,4 +44,10 @@
       <SubType>Designer</SubType>
     </AppxManifest>
   </ItemGroup>
+  <ItemGroup>
+    <!-- Pull ONNX model assets produced by tools/onnx-export into the package. -->
+    <Content Include="..\..\assets\models\*.onnx" Link="Assets\models\%(Filename)%(Extension)">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
 </Project>

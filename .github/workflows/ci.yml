@@ -1,0 +1,108 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Fast lane: Core + tests have no Windows dependency, so we run them on
+  # Linux to keep PR feedback loops tight.
+  core-linux:
+    name: Core (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore Core + tests
+        run: |
+          dotnet restore src/NHC.Core/NHC.Core.csproj
+          dotnet restore tests/NHC.Core.Tests/NHC.Core.Tests.csproj
+
+      - name: Build Core
+        run: dotnet build src/NHC.Core/NHC.Core.csproj -c Release --no-restore
+
+      - name: Test Core
+        run: >
+          dotnet test tests/NHC.Core.Tests/NHC.Core.Tests.csproj
+          -c Release --no-build --logger "trx;LogFileName=core.trx"
+          --results-directory artifacts/test-results
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-linux
+          path: artifacts/test-results
+
+  # Full solution only builds on Windows because of WinUI / WIC.
+  solution-windows:
+    name: Solution (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Windows App SDK workload
+        run: dotnet workload install microsoft-windowsappsdk
+
+      - name: Restore solution
+        run: dotnet restore NHC.sln
+
+      - name: Build solution
+        run: dotnet build NHC.sln -c Release --no-restore
+
+      - name: Run tests
+        run: >
+          dotnet test NHC.sln -c Release --no-build
+          --logger "trx;LogFileName=solution.trx"
+          --results-directory artifacts/test-results
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-windows
+          path: artifacts/test-results
+
+  # Publish the MSIX on tag pushes. Kept as a separate job so the main
+  # build lane stays green even when packaging regressions happen.
+  package-msix:
+    name: Package MSIX
+    needs: solution-windows
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Windows App SDK workload
+        run: dotnet workload install microsoft-windowsappsdk
+
+      - name: Publish NHC.App
+        run: >
+          dotnet publish src/NHC.App/NHC.App.csproj
+          -c Release -r win-x64 --self-contained true
+          /p:GenerateAppxPackageOnBuild=true
+          /p:AppxPackageDir=${{ github.workspace }}\artifacts\msix\
+
+      - name: Upload MSIX artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nhc-msix
+          path: artifacts/msix/

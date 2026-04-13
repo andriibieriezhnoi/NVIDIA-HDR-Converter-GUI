@@ -1,0 +1,3 @@
+# ONNX model assets land here (produced by `tools/onnx-export/export.py`).
+# The file is intentionally empty — it only exists to keep this directory
+# under version control.

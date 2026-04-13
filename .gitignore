@@ -1,0 +1,29 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.userprefs
+*.swp
+*.DS_Store
+Generated Files/
+AppPackages/
+BundleArtifacts/
+*.appx
+*.appxbundle
+*.appxupload
+*.msix
+*.msixbundle
+*.pfx
+TestResults/
+artifacts/
+.idea/
+
+# ONNX model assets are produced by tools/onnx-export; don't track binaries.
+assets/models/*.onnx
+
+# Python exporter virtualenv + caches
+tools/onnx-export/.venv/
+tools/onnx-export/__pycache__/
+*.pyc
+hdr_converter.log

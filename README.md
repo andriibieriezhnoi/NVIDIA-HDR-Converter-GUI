@@ -1,220 +1,113 @@
-# NVIDIA HDR Converter GUI
+# NVIDIA HDR Converter
 
-Convert NVIDIA HDR screenshots (JXR format) to JPEG with advanced AI enhancement and intelligent tone mapping.
+Native Windows app that converts NVIDIA HDR screenshots (`.jxr` from Ansel
+or the Xbox Game Bar) to **JPEG** or **16-bit TIFF**, with intelligent
+tone mapping and optional AI color enhancement.
 
-<p align="center">
-  <img width="1024" src="interface.jpg">
-</p>
-
-> **Native Windows rewrite in progress.** A from-scratch C#/WinUI 3/.NET 8
-> rewrite of this app lives under [`winui/`](winui/README.md). It replaces
-> the Tkinter UI with a native MVVM Fluent shell, runs ML via ONNX
-> Runtime (no Python at runtime), decodes JXR through WIC, and ships as
-> an MSIX. The Python app below remains the reference implementation
-> until the rewrite reaches parity. See [`winui/README.md`](winui/README.md)
-> for build instructions and [`tools/onnx-export/`](tools/onnx-export/README.md)
-> for the PyTorch → ONNX exporter.
+Built on **.NET 8 / WinUI 3 / MVVM**. ML runs via **ONNX Runtime** with
+a CUDA execution provider and CPU fallback — no Python at runtime. JXR
+decoding goes through Windows Imaging Component directly, so there are
+no third-party codec DLLs to ship.
 
 ## Features
 
-### Core Functionality
-- **Convert NVIDIA JXR (HDR)** screenshots to JPEG format
-- **Intelligent HDR tone mapping** with automatic algorithm selection
-- **AI-powered color enhancement** using ensemble deep learning models
-- **Batch processing** support for folders
-- **Live preview** with before/after comparison and histogram visualization
-- **HDR metadata extraction** from JXR files for optimal processing
+- **JXR (JPEG XR) decode** at full scRGB float32 precision via WIC.
+- **Tone mapping** — ACES (Narkowicz fit), Hable (Uncharted 2), extended
+  Reinhard with white point. An **Auto** selector picks the best
+  operator from simple image statistics (dynamic range, shadow/highlight
+  fraction, mean luminance).
+- **AI color enhancement** — compact UNet color-delta network, tiled at
+  512 px for 4K safety. Blends into the tone-mapped output by a
+  user-controlled strength.
+- **Edge enhancement** — Sobel with an amplitude cap at 20% of local
+  luminance to avoid haloing.
+- **Bayer 8×8 ordered dither** before 8-bit quantisation kills banding
+  in flat gradients.
+- **Batch mode** — folder processing with cancellation and streaming
+  progress.
+- **CLI** — `nhc --in x.jxr --out x.jpg --tone auto` for scripted runs.
 
-### AI Color Enhancement
-- **Multi-model ensemble** using VGG16, ResNet34, and DenseNet121
-- **CBAM attention mechanism** for spatial and channel-wise feature enhancement
-- **Perceptual color preservation** during tone mapping
-- **Edge enhancement** with Sobel filters and adaptive strength control
-- **Color balance optimization** across shadows, midtones, and highlights
-- **Half-precision (FP16)** support for memory-efficient GPU processing
+## Repository layout
 
-### Advanced Tone Mapping Algorithms
-- **Perceptual** - Advanced tone mapping preserving local contrast and color relationships
-- **Adaptive** - Intelligent blending of multiple operators based on image regions
-- **Mantiuk06** - Contrast-based tone mapping with local adaptation
-- **Drago03** - Logarithmic tone mapping optimized for extreme dynamic ranges
-- **Hable** - Filmic tone mapping curve (Uncharted 2)
-- **ACES** - Academy Color Encoding System RRT+ODT
-- **Reinhard** - Extended Reinhard with white point adaptation
-- **Filmic** - Cinematic tone mapping
-- **Uncharted2** - Game-optimized tone mapping
-
-### Intelligent Processing
-- **Automatic tone mapping selection** based on comprehensive image analysis
-- **Scene classification** (high-key, low-key, extreme highlights detection)
-- **Dynamic range analysis** with histogram-based optimization
-- **Local contrast preservation** and enhancement
-- **Color saturation analysis** and adaptive correction
-
-### User Interface
-- **Modern dark-themed GUI** with TKinterModernThemes
-- **Dual preview modes** (Big/Small) with resizable interface
-- **Real-time histogram visualization** with RGB channel analysis
-- **Progress tracking** for batch operations
-- **Device switching** (GPU/CPU) with live performance monitoring
-- **Parameter adjustment** with live preview updates
-
-## Requirements
-
-### System Requirements
-- **Python 3.8+**
-- **NVIDIA GPU** (recommended) with CUDA support
-- **4GB+ RAM** (8GB+ recommended for large images)
-
-### Python Dependencies
-```txt
-torch>=2.0.0
-torchvision>=0.15.0
-Pillow==10.2.0
-numpy==1.26.4
-matplotlib==3.9.3
-imagecodecs==2024.9.22
-TKinterModernThemes==1.10.4
+```
+.
+├── NHC.sln
+├── Directory.Build.props                 # shared MSBuild (Nullable, warnings-as-errors)
+├── src/
+│   ├── NHC.Core/                         # .NET 8, cross-platform — testable on any OS
+│   ├── NHC.Imaging.Windows/              # net8.0-windows, WIC JXR / JPEG / TIFF
+│   ├── NHC.ML/                           # ONNX Runtime session + tiled enhancer
+│   ├── NHC.Cli/                          # headless `nhc` converter
+│   └── NHC.App/                          # WinUI 3 MSIX shell
+├── tests/NHC.Core.Tests/                 # xUnit + FluentAssertions
+├── assets/models/                        # enhancer.onnx lives here at runtime
+└── tools/onnx-export/                    # PyTorch → ONNX exporter
 ```
 
-**Install PyTorch:** Visit https://pytorch.org/ for CUDA-compatible installation
+## Build
 
-## Installation
+Prerequisites on Windows 10 19041+:
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/5ymph0en1x/NVIDIA-HDR-Converter-GUI.git
-   cd NVIDIA-HDR-Converter-GUI
-   ```
+- Visual Studio 2022 17.10+ with the **.NET Desktop** and **Windows App
+  SDK C#** workloads, or
+- the .NET 8 SDK + Windows App SDK build tooling (`dotnet workload
+  install microsoft-windowsappsdk`).
 
-2. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Run the application:**
-   ```bash
-   python NHC.py
-   ```
-
-## Usage
-
-### Single File Conversion
-1. Launch the application
-2. Select **"Single File"** mode
-3. Browse and select input JXR file
-4. Choose output JPEG location
-5. Adjust parameters (gamma, exposure, enhancement strength)
-6. Click **"Convert"**
-
-### Batch Processing
-1. Select **"Folder"** mode
-2. Choose folder containing JXR files
-3. Configure enhancement parameters
-4. Click **"Convert"**
-
-> **Note:** Converted files are saved in a `Converted_JPGs` subfolder with automatic naming
-
-### Parameter Configuration
-
-#### Basic Parameters
-- **Tone Map**: Displays auto-detected optimal algorithm
-- **Gamma**: Pre-gamma correction (0.1-3.0, default: 1.0)
-- **Exposure**: Auto-exposure adjustment (0.1-3.0, default: 1.0)
-
-#### AI Enhancement Controls
-- **Enable AI Enhancement**: Toggle neural network-based color correction
-- **Strength**: Edge enhancement intensity (0-100%, default: 50%)
-
-#### Device Settings
-- **GPU/CPU Selection**: Automatic CUDA detection with fallback
-- **Half-Precision Toggle**: Enable FP16 for memory efficiency (GPU only)
-
-### Interface Modes
-- **Big Mode**: 2200×850 window with 720×406 previews
-- **Small Mode**: 1760×840 window with 512×288 previews
-
-## Technical Architecture
-
-### HDR Processing Pipeline
-1. **JXR Decoding** with metadata extraction
-2. **Image Analysis** for optimal tone mapping selection
-3. **Tone Mapping** using selected algorithm
-4. **AI Enhancement** (optional) with color correction
-5. **Edge Enhancement** (optional) with adaptive filtering
-6. **sRGB Conversion** and JPEG encoding
-
-### AI Enhancement Architecture
-```
-Input → VGG16 Features    ↘
-     → ResNet34 Features  → Feature Fusion → CBAM Attention → Color Transform → Output
-     → DenseNet Features  ↗
+```powershell
+dotnet restore NHC.sln
+dotnet build   NHC.sln -c Release
+dotnet test    tests/NHC.Core.Tests/NHC.Core.Tests.csproj
 ```
 
-### Key Components
-- **HDRMetadata**: Extracts luminance and color space information
-- **AdvancedToneMapper**: Multi-algorithm tone mapping with automatic selection
-- **PerceptualColorPreserver**: CIE LAB color space preservation
-- **ColorCorrectionNet**: Ensemble deep learning model
-- **EdgeEnhancementBlock**: Sobel-based edge detection and enhancement
-- **DeviceManager**: GPU/CPU switching with memory optimization
+Core library + tests also build on Linux and macOS (they have no Windows
+dependency), which is what the GitHub Actions workflow exercises on
+every push.
 
-### Performance Optimizations
-- **Memory-efficient tensor operations** with automatic cleanup
-- **Multi-threaded processing** for batch operations
-- **Progressive image loading** for large files
-- **CUDA memory management** with automatic cache clearing
-- **Half-precision support** reducing memory usage by 50%
+## Run
 
-### Image Analysis Metrics
-- **Dynamic range analysis** (min/max/mean luminance)
-- **Zone system analysis** (shadow/midtone/highlight distribution)
-- **Local contrast measurement** with variance analysis
-- **Color saturation evaluation** across channels
-- **Scene classification** (high-key/low-key/extreme highlights)
+Launch from Visual Studio (set `NHC.App` as startup) or produce an MSIX:
 
-## Supported Formats
+```powershell
+dotnet publish src/NHC.App/NHC.App.csproj `
+  -c Release -r win-x64 --self-contained true `
+  /p:GenerateAppxPackageOnBuild=true
+```
 
-### Input
-- **JXR files** (JPEG XR) from NVIDIA HDR screenshots
-- **HDR metadata** automatic extraction and utilization
+Or run the CLI:
 
-### Output
-- **JPEG** with optimized quality settings (95% quality, optimized compression)
+```powershell
+dotnet run --project src/NHC.Cli -- --in shot.jxr --out shot.jpg --tone auto
+```
 
-## Logging and Debugging
-- **Comprehensive logging** to `hdr_converter.log`
-- **Real-time status updates** in GUI
-- **Error handling** with detailed messages
-- **Performance metrics** logging
+## ONNX model asset
 
-## Known Limitations
-- **JXR format only** - other HDR formats not supported
-- **NVIDIA screenshots** - optimized for NVIDIA HDR capture format
-- **Memory requirements** - large images may require significant RAM
+The WinUI app loads `assets/models/enhancer.onnx` at startup. To produce
+it, install the exporter's dependencies and run the script:
 
-## Troubleshooting
+```bash
+pip install -r tools/onnx-export/requirements.txt
+python tools/onnx-export/export.py --checkpoint path/to/trained.pt
+```
 
-### Common Issues
-- **"imagecodecs version compatibility"**: Update imagecodecs to latest version
-- **CUDA out of memory**: Enable FP16 mode or switch to CPU processing
-- **JXR decode failure**: Ensure file is valid NVIDIA HDR screenshot
+Running without `--checkpoint` writes an untrained graph that is only
+useful for smoke-testing the ORT session wiring.
 
-### Performance Tips
-- **Use GPU mode** for faster processing
-- **Enable FP16** to reduce memory usage
-- **Close other applications** when processing large batches
-- **Use Small mode** for lower memory usage
+## Architecture notes
 
-## Acknowledgments
-- **PyTorch** pretrained models (VGG16, ResNet34, DenseNet121)
-- **TKinterModernThemes** for modern GUI design
-- **imagecodecs** for JXR decoding support
-- **NVIDIA** for HDR screenshot format documentation
+- **MVVM** via `CommunityToolkit.Mvvm` source generators. View-models
+  depend on `IDialogService` / `IUiDispatcher` abstractions so they are
+  unit-testable without WinUI.
+- **DI / hosting** via `Microsoft.Extensions.Hosting`; the same host
+  graph is used by `NHC.App` and `NHC.Cli`.
+- **Progress** streams out of `ConversionPipeline` as
+  `IAsyncEnumerable<ProgressEvent>` on top of
+  `System.Threading.Channels`, so the UI can `await foreach` without
+  reasoning about threads.
+- **Auto tone mapper** is a three-branch rule on `ImageStatistics`
+  rather than the hand-crafted scoring tree from the previous
+  implementation — far easier to test and reason about.
+- **Logging** is Serilog, writing to `%LOCALAPPDATA%\…\nhc-app.log`.
 
 ## License
-This project is open source. Please check the license file for details.
 
----
-
-**Version**: Enhanced Edition with AI-powered processing and intelligent tone mapping
+See [`LICENSE`](LICENSE).

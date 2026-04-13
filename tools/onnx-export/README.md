@@ -1,13 +1,13 @@
 # ONNX export
 
-One-shot tool that converts the PyTorch enhancement stack into an ONNX file
-consumed by `NHC.ML.ColorEnhancer` at runtime.
+One-shot tool that exports the PyTorch color-enhancement topology into
+`enhancer.onnx`, which `NHC.ML.ColorEnhancer` loads at runtime.
 
 ```bash
 pip install -r requirements.txt
-python export.py --mode distilled                 # small, shipped by default
-python export.py --mode ensemble --output big.onnx   # full VGG+ResNet+DenseNet
+python export.py                              # untrained; smoke-test only
+python export.py --checkpoint trained.pt      # production
 ```
 
-Output path defaults to `winui/assets/models/enhancer.onnx`, which is where
-the WinUI app looks at startup.
+Output path defaults to `assets/models/enhancer.onnx` at the repo root,
+which is where the WinUI app looks on startup.
